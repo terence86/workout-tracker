@@ -102,6 +102,13 @@ label.f{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;l
 .sideb.r{color:var(--vol);border-color:var(--vol-dim)}
 .lastp{font-size:11px;color:var(--dim);margin-bottom:8px;padding:6px 8px;background:var(--panel2);border-radius:8px}
 .lastp sup{font-size:8px}
+.noteline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut);
+  border-left:2px solid var(--vol-dim);padding:4px 8px;margin:4px 0;background:var(--panel2);border-radius:0 8px 8px 0}
+.ndel{color:var(--dim);cursor:pointer;padding:0 4px;font-size:12px}
+.rrow{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.rrow b{flex:1;font-size:13px;font-weight:700}
+.rrow.pos span:first-child{color:var(--ok)} .rrow.neg span:first-child{color:var(--bad)}
+.rrow.mix span:first-child{color:var(--str)}
 .abtag{font-size:10px;font-weight:800;color:var(--str);border:1px solid var(--str-dim);border-radius:6px;padding:1px 6px;letter-spacing:.06em}
 
 /* timer bar */
@@ -472,10 +479,18 @@ function logView(){
         ${setRows}
         <div class="tools">
           <button class="btn sm ghost" onclick="AAddSet(${i})">+ set</button>
+          <button class="btn sm ghost" onclick="ARemSet(${i})">− set</button>
           <button class="btn sm ghost" onclick="ASkip(${i})">${en.skipped?'Unskip':'Skip'}</button>
           <button class="btn sm ghost danger" onclick="ARem(${i})">Remove</button>
         </div>
-        <div class="notef"><input placeholder="Note (sensation, form, pain…)" value="${esc(en.note)}" onchange="ANote(${i},this.value)"></div>
+        ${(en.note?en.note.split('\n'):[]).map((ln,k)=>`
+          <div class="noteline"><span class="grow">${esc(ln)}</span>
+          <span class="ndel" onclick="ANoteDel(${i},${k})">✕</span></div>`).join('')}
+        <div class="notef row">
+          <input class="grow" id="ni${i}" placeholder="Add note — Enter saves" enterkeyhint="done"
+            onkeydown="if(event.key==='Enter'){ANoteAdd(${i},this.value);this.blur();}">
+          <button class="btn sm" onclick="ANoteAdd(${i},document.querySelector('#ni${i}').value)">Add</button>
+        </div>
       </div></div>`;}).join('');
   return `
     <div class="tbar"><div class="in"><b>${DAYS[A.day].ico} ${DAYS[A.day].n}</b>
@@ -506,7 +521,13 @@ function AAddSet(i){const en=DB.active.entries[i];const last=en.sets[en.sets.len
   en.sets.push({w:last.w,r:last.r,done:false});save();render();}
 function ASkip(i){const en=DB.active.entries[i];en.skipped=!en.skipped;if(en.skipped)en.open=false;save();render();}
 function ARem(i){if(confirm('Remove from this session only?')){DB.active.entries.splice(i,1);save();render();}}
-function ANote(i,v){DB.active.entries[i].note=v;save();}
+function ARemSet(i){const en=DB.active.entries[i];if(!en.sets.length)return;
+  let k=-1;for(let m=en.sets.length-1;m>=0;m--){if(!en.sets[m].done){k=m;break;}}
+  en.sets.splice(k>=0?k:en.sets.length-1,1);save();render();}
+function ANoteAdd(i,v){v=(v||'').trim();if(!v)return;const en=DB.active.entries[i];
+  en.note=en.note?en.note+'\n'+v:v;save();render();}
+function ANoteDel(i,k){const en=DB.active.entries[i];const a=en.note.split('\n');
+  a.splice(k,1);en.note=a.join('\n');save();render();}
 function addExPicker(){
   const opts=DB.exercises.filter(e=>!e.archived&&!DB.active.entries.some(en=>en.exId===e.id))
     .map(e=>`<option value="${e.id}">${esc(e.name)} (${e.group})</option>`).join('');
@@ -531,6 +552,30 @@ function finishWorkout(){
     if(topW>0&&topW!==tpl.weight)diffs.push({exId:en.exId,from:tpl.weight,to:topW});
   });
   DB.sessions.push(sess);DB.active=null;save();
+  // session-over-session recap
+  const recap=sess.entries.filter(en=>(en.sets||[]).length&&!en.skipped).map(en=>{
+    const ex=exById(en.exId);
+    const st=sets=>({topW:Math.max(0,...sets.map(x=>effW(ex,x))),
+      reps:sets.reduce((a,x)=>a+(x.r||0),0),
+      vol:sets.reduce((a,x)=>a+setVol(x,ex),0),
+      e1:Math.max(0,...sets.map(x=>e1rm(effW(ex,x),x.r)))});
+    const lp=lastPerf(en.exId,sess.date),c=st(en.sets);
+    if(!lp)return `<div class="rrow muted"><span>•</span><b>${esc(ex.name)}</b><span class="mono tiny">first log — baseline set</span></div>`;
+    const p=st(lp.sets);
+    const de=c.e1-p.e1,dv=c.vol-p.vol;
+    const score=ex.unit==='sec'?c.reps-p.reps:(Math.abs(de)>0.5?de:dv);
+    const mixed=ex.unit!=='sec'&&Math.abs(de)>0.5&&Math.abs(dv)>1&&(de>0)!==(dv>0);
+    const arrow=mixed?'◆':score>0?'▲':score<0?'▼':'•';
+    const cls=mixed?'mix':score>0?'pos':score<0?'neg':'muted';
+    let d;
+    if(ex.unit==='sec')d=`${p.reps}s → ${c.reps}s`;
+    else{
+      d=(c.topW!==p.topW?`top ${Math.round(p.topW)}→${Math.round(c.topW)}`:`top ${Math.round(c.topW)}`)
+        +(c.reps!==p.reps?` · reps ${p.reps}→${c.reps}`:'')
+        +(Math.round(c.vol-p.vol)?` · vol ${c.vol>p.vol?'+':''}${Math.round(c.vol-p.vol)}`:'');
+    }
+    return `<div class="rrow ${cls}"><span>${arrow}</span><b>${esc(ex.name)}</b><span class="mono tiny">${d}</span></div>`;
+  }).join('');
   const vol=Math.round(sessVol(sess)).toLocaleString();
   const diffHTML=diffs.length?`<h2 style="margin-top:16px">Update template?</h2>`+diffs.map((d,i)=>`
     <div class="card row between"><div><b>${esc(exById(d.exId).name)}</b>
@@ -540,6 +585,7 @@ function finishWorkout(){
     <table class="sum"><tr><td class="muted">Duration</td><td class="mono">${Math.round(sess.dur/60)} min</td></tr>
     <tr><td class="muted">Volume</td><td class="mono vol">${vol} lbs</td></tr>
     <tr><td class="muted">Sets logged</td><td class="mono">${entries.reduce((a,e)=>a+e.sets.length,0)}</td></tr></table>
+    ${recap?`<h2 style="margin-top:16px">vs last session</h2>${recap}`:''}
     ${diffHTML}<div style="height:12px"></div>
     <button class="btn primary" onclick="closeModal();APP.tab='home';render()">Done</button>`);
 }
@@ -631,8 +677,9 @@ function anaView(){
   const q=F.q.toLowerCase();
   const notes=[];sessionsSorted().reverse().forEach(s=>{
     if(s.note&&(!q||s.note.toLowerCase().includes(q)))notes.push({d:s.date,who:DAYS[s.day].n+' day',txt:s.note});
-    s.entries.forEach(en=>{if(en.note&&(!q||en.note.toLowerCase().includes(q)||exById(en.exId).name.toLowerCase().includes(q)))
-      notes.push({d:s.date,who:exById(en.exId).name,txt:en.note});});});
+    s.entries.forEach(en=>{if(!en.note)return;en.note.split('\n').forEach(ln=>{
+      if(ln&&(!q||ln.toLowerCase().includes(q)||exById(en.exId).name.toLowerCase().includes(q)))
+        notes.push({d:s.date,who:exById(en.exId).name,txt:ln});});});});
   const noteCard=`<h2>Notes</h2>
     <input placeholder="Search notes… (e.g. adduction, glute, scap)" value="${esc(F.q)}" oninput="F.q=this.value;render();this.focus();this.setSelectionRange(this.value.length,this.value.length)">
     <div style="height:10px"></div>
@@ -667,7 +714,7 @@ function openSession(id){
       <button class="btn sm ghost danger" onclick="HDelEnt('${id}',${i})">✕</button></div>
       <div class="exb">${rows}
         <div class="tools"><button class="btn sm ghost" onclick="HAddSet('${id}',${i})">+ set</button></div>
-        <div class="notef"><input placeholder="Note" value="${esc(en.note||'')}" onchange="HNote('${id}',${i},this.value)"></div>
+        <div class="notef"><textarea rows="2" placeholder="Notes — one per line" onchange="HNote('${id}',${i},this.value)">${esc(en.note||'')}</textarea></div>
       </div></div>`;};
   modal(`<h3>Edit — ${DAYS[s.day].n}</h3>
     <label class="f">Date</label><input type="date" value="${s.date}" onchange="HDate('${id}',this.value)">
@@ -824,7 +871,7 @@ function exportJSON(){
 function exportCSV(){
   let csv='date,day,exercise,group,set,side,added_lbs,effective_lbs,reps,skipped,note\n';
   sessionsSorted().forEach(s=>s.entries.forEach(en=>{
-    const ex=exById(en.exId),note=(en.note||'').replace(/"/g,'""');
+    const ex=exById(en.exId),note=(en.note||'').replace(/"/g,'""').replace(/\n/g,' | ');
     if(en.skipped)csv+=`${s.date},${s.day},"${ex.name}",${ex.group},,,,,,1,"${note}"\n`;
     (en.sets||[]).forEach((x,j)=>{csv+=`${s.date},${s.day},"${ex.name}",${ex.group},${j+1},${x.side||''},${x.w||0},${Math.round(effW(ex,x)*10)/10},${x.r||0},0,"${j===0?note:''}"\n`;});
   }));
