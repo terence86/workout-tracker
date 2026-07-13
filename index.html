@@ -203,40 +203,11 @@ function seed(){
     shdl:[T('dl',3,5,0),T('dsp',3,10,0),T('latr',3,12,0),T('rdf',3,12,0),T('fp',3,15,0),T('cer',2,15,0),T('fc',2,30,0)]
   };
 
-  const S=(w,r)=>({w,r,done:true});
-  const sessions=[
-    {id:'s1',date:'2026-06-09',day:'pull',dur:20*60,note:'',entries:[
-      {exId:'pu',sets:[S(0,7),S(0,5)],note:''},
-      {exId:'spu',sets:[S(0,15),S(0,15)],note:''},
-      {exId:'row',sets:[S(95,10),S(95,10)],note:''},
-      {exId:'rr',sets:[S(0,10),S(0,8)],note:''},
-      {exId:'hc',sets:[S(17.5,10),S(17.5,5)],note:'8kg DBs; drop-off set 2'},
-      {exId:'ber',sets:[S(0,15),S(0,15)],note:'band too light'}]},
-    {id:'s2',date:'2026-06-22',day:'push',dur:null,note:'Date approximate. Accessories performed, not logged.',entries:[
-      {exId:'bp',sets:[S(135,10),S(135,8),S(135,10)],note:'Recalibration 115→135. Cue: brace upper back+glutes, minimize lumbar arch'},
-      {exId:'pf',sets:[],note:'A-week ran — weights not logged'}]},
-    {id:'s3',date:'2026-06-24',day:'pull',dur:null,note:'Date approximate.',entries:[
-      {exId:'row',sets:[S(115,10),S(115,10),S(115,10),S(115,10)],note:'Form broke late set 4. Next: 115×4×8 strict. Core bracing throughout each rep'}]},
-    {id:'s4',date:'2026-06-26',day:'shdl',dur:null,note:'Session ran — no numbers logged. Fill in when recalled.',entries:[]},
-    {id:'s5',date:'2026-07-01',day:'core',dur:null,note:'First core session in months — deliberate reduced volume on reentry.',entries:[
-      {exId:'pal',sets:[S(100,12),S(100,12)],note:'Strict form, zero end-range rotation — meaningfully harder'},
-      {exId:'db2',sets:[S(0,8),S(0,8)],note:'per side'},
-      {exId:'sp',sets:[S(0,20),S(0,20)],note:'per side'},
-      {exId:'n90',sets:[S(0,30),S(0,30)],note:'Novel deep RIGHT glute stretch — asymmetric hip rotation signal'},
-      {exId:'lr',sets:[S(0,10),S(0,10)],note:''},
-      {exId:'beh',sets:[S(0,30)],note:'Swapped from Y-raise — scap sore from last shoulder day'}]},
-    {id:'s6',date:'2026-07-02',day:'push',dur:null,note:'Skull-crusher B-week — actuals not logged. Fill in when recalled.',entries:[]},
-    {id:'s7',date:'2026-07-03',day:'lower',dur:null,note:'Calibration session.',entries:[
-      {exId:'sq',sets:[S(185,6)],note:'Pyramided to top set 185×6 — working ceiling'},
-      {exId:'rdl',sets:[S(115,10),S(115,10),S(115,10)],note:'Underloaded — target 135–145 ×3×10'},
-      {exId:'bss',sets:[S(0,10)],note:'per side'},
-      {exId:'had',sets:[S(0,12)],note:'Pelvic-alignment sensation — high-value, track each session'},
-      {exId:'hab',sets:[S(0,12)],note:''},
-      {exId:'gt',sets:[],skipped:true,note:'skipped'},
-      {exId:'cr',sets:[S(0,15)],note:'Right-foot calf raise pain-free — sesamoiditis formally cleared'}]}
-  ];
-  return {v:2,groups:[...DEFAULT_GROUPS],exercises:ex,template,sessions,active:null,
-    meta:{lastExport:null,nudgeDismissed:null,appVer:2}};
+  Object.keys(template).forEach(d=>template[d].forEach(t=>t.weight=0)); // fresh installs: no personal loads
+  return {v:5,groups:[...DEFAULT_GROUPS],exercises:ex,
+    programs:[{id:'p1',name:'Balanced 5-Day',template}],activeProgram:'p1',
+    profile:{name:''},onboarded:false,sessions:[],active:null,
+    meta:{lastExport:null,nudgeDismissed:null,bodyweight:0,appVer:5}};
 }
 
 let DB;
@@ -248,12 +219,21 @@ if((DB.meta.appVer||1)<3){ // v2→v3: bodyweight + unilateral
   DB.exercises.forEach(e=>{if(e.bw==null)e.bw=BWD[e.id]||0;if(e.uni==null)e.uni=['bss','sp','db2','had','hab'].includes(e.id);});
   DB.meta.appVer=3;
 }
+if((DB.meta.appVer||1)<5){ // v3→v5: programs, profile, onboarding
+  if(!DB.programs){DB.programs=[{id:'p1',name:'My Program',template:DB.template}];DB.activeProgram='p1';delete DB.template;}
+  DB.profile=DB.profile||{name:''};
+  if(DB.onboarded==null)DB.onboarded=(DB.sessions.length>0||(DB.meta.bodyweight||0)>0);
+  DB.sessions.forEach(x=>{if(!x.prog)x.prog='p1';});
+  DB.meta.appVer=5;
+}
 GROUPS=DB.groups;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){alert('Save failed — storage full or blocked.');}}
 save();
 
 /* ============ HELPERS ============ */
 const $=s=>document.querySelector(s);
+const tpl=()=>{const pr=DB.programs.find(x=>x.id===DB.activeProgram)||DB.programs[0];return pr.template;};
+const progName=()=>((DB.programs.find(x=>x.id===DB.activeProgram)||DB.programs[0]).name);
 const exById=id=>DB.exercises.find(e=>e.id===id)||{name:'(deleted)',group:'core',unit:'reps'};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const e1rm=(w,r)=>w>0&&r>0?w*(1+r/30):0;
@@ -273,6 +253,13 @@ function topE1(sess,exId,side){const ex=exById(exId);let m=0;
 function topSet(sess,exId,side){const ex=exById(exId);let m=0;
   (sess.entries.find(e=>e.exId===exId)?.sets||[]).forEach(s=>{
     if(side&&s.side!==side)return;const w=effW(ex,s);if(w>m&&(s.r||0)>0)m=w;});return m;}
+function prStats(exId,excludeId){const ex=exById(exId);let w=0,vol=0;
+  sessionsSorted().forEach(ss2=>{if(ss2.id===excludeId)return;
+    const en=ss2.entries.find(e=>e.exId===exId);if(!en)return;
+    let v=0;(en.sets||[]).forEach(x=>{const ew=effW(ex,x);
+      if((x.r||0)>0&&ew>w)w=ew;v+=setVol(x,ex);});
+    if(v>vol)vol=v;});
+  return {w,vol};}
 function lastPerf(exId,beforeDate){ // most recent logged sets for exercise
   const ss=sessionsSorted();
   for(let i=ss.length-1;i>=0;i--){
@@ -401,7 +388,7 @@ function homeView(){
         <div class="muted">${fmtD(last.date)}${last.dur?' · '+Math.round(last.dur/60)+' min':''}</div></div>
         <div class="mono str" style="text-align:right">${Math.round(sessVol(last)).toLocaleString()}<div class="tiny">lbs vol</div></div></div>
     </div>`:'';
-  const due=sel?DB.template[sel].filter(t=>{const e=exById(t.exId);return !e.ab||abDue(e.ab,sel)===t.exId;}):[];
+  const due=sel?tpl()[sel].filter(t=>{const e=exById(t.exId);return !e.ab||abDue(e.ab,sel)===t.exId;}):[];
   const preview=due.map(t=>{const e=exById(t.exId);
     return `<div class="row between" style="padding:6px 0;border-top:1px solid var(--line)">
       <span style="font-size:14px">${esc(e.name)} ${e.ab?'<span class="abtag">A/B</span>':''}</span>
@@ -409,7 +396,7 @@ function homeView(){
   const startCard=sel?`
     <h2>Up next</h2>
     <div class="card">
-      <div class="row between"><b style="font-size:17px">${DAYS[sel].ico} ${DAYS[sel].n} Day</b>
+      <div class="row between"><div><b style="font-size:17px">${DAYS[sel].ico} ${DAYS[sel].n} Day</b><div class="tiny">${esc(progName())}</div></div>
         <button class="btn sm ghost" onclick="editTpl('${sel}')">Edit day</button></div>
       <div style="margin-top:8px">${preview||'<div class="muted">No exercises — tap Edit day to build it.</div>'}</div>
       <div style="margin-top:12px"><button class="btn primary" onclick="startWorkout('${sel}')">Start ${DAYS[sel].n}</button></div>
@@ -438,7 +425,7 @@ function startWorkout(day){
       <button class="btn danger" onclick="closeModal();DB.active=null;save();startWorkout('${day}')">Discard &amp; start ${DAYS[day].n}</button>`);
     return;
   }
-  const entries=DB.template[day]
+  const entries=tpl()[day]
     .filter(t=>{const e=exById(t.exId);return !e.ab||abDue(e.ab,day)===t.exId;})
     .map(t=>{const e=exById(t.exId);
       const sets=e.uni
@@ -468,6 +455,9 @@ function logView(){
         <button class="ck ${s.done?'on':''}" onclick="ATog(${i},${j})">✓</button></div>`).join('');
     const lp=lastPerf(en.exId,todayISO());
     const lastLine=lp?`<div class="lastp mono">Last ${fmtD(lp.date)}: ${lp.sets.map(s=>`${s.w?s.w+'×':''}${s.r}${s.side?'<sup>'+s.side+'</sup>':''}`).join(', ')}</div>`:'';
+    const pr=prStats(en.exId);
+    const liveVol=en.sets.filter(x=>x.done).reduce((a,x)=>a+setVol(x,ex),0);
+    const prLine=(pr.w||pr.vol)?`<div class="lastp mono"><span class="str">PR ${Math.round(pr.w)} lbs</span> · vol PR ${Math.round(pr.vol).toLocaleString()}${liveVol?` · today ${Math.round(liveVol).toLocaleString()} <span class="${liveVol>pr.vol?'pos':'muted'}">(${pr.vol?Math.round(liveVol/pr.vol*100):100}%)</span>`:''}</div>`:'';
     return `<div class="ex ${allDone&&!en.skipped?'done':''} ${en.skipped?'skip':''}">
       <div class="exh" onclick="AOpen(${i})">
         <div class="st" onclick="event.stopPropagation();ADoneAll(${i})">${allDone&&!en.skipped?'✓':''}</div>
@@ -475,7 +465,7 @@ function logView(){
           <div class="ext mono">${t.sets}×${t.reps}${t.weight?' @ '+t.weight:''}${ex.unit==='sec'?'s':''}</div></div>
         <div class="tiny">${en.open?'▲':'▼'}</div></div>
       <div class="exb ${en.open?'':'hide'}">
-        ${lastLine}
+        ${lastLine}${prLine}
         ${setRows}
         <div class="tools">
           <button class="btn sm ghost" onclick="AAddSet(${i})">+ set</button>
@@ -531,10 +521,45 @@ function ANoteDel(i,k){const en=DB.active.entries[i];const a=en.note.split('\n')
 function addExPicker(){
   const opts=DB.exercises.filter(e=>!e.archived&&!DB.active.entries.some(en=>en.exId===e.id))
     .map(e=>`<option value="${e.id}">${esc(e.name)} (${e.group})</option>`).join('');
-  modal(`<h3>Add exercise</h3><select id="pk">${opts}</select>
-    <div style="height:12px"></div><button class="btn primary" onclick="addExDo()">Add</button>`);
+  modal(`<h3>Add exercise</h3>
+    <label class="f">From library</label>
+    <div class="row"><select id="pk" class="grow">${opts||'<option value="">—</option>'}</select>
+    <button class="btn sm" onclick="addExDo()">Add</button></div>
+    <div class="tiny" style="margin:14px 0 6px;text-align:center">— or —</div>
+    <button class="btn ghost" onclick="newExForm()">＋ Create new exercise</button>`);
 }
-function addExDo(){const id=$('#pk').value;
+function newExForm(){
+  modal(`<h3>New exercise</h3>
+    <label class="f">Name</label><input id="nxn" placeholder="e.g. Cable Wood Chop">
+    <label class="f">Type (muscle group)</label><select id="nxg">${GROUPS.map(g=>`<option>${g}</option>`).join('')}</select>
+    <label class="f">Unit</label><select id="nxu"><option value="reps">reps</option><option value="sec">seconds</option></select>
+    <div class="row" style="margin-top:6px">
+      <div class="grow"><label class="f">Baseline sets</label><input id="nxs" type="number" value="3"></div>
+      <div class="grow"><label class="f">Baseline reps/sec</label><input id="nxr" type="number" value="10"></div>
+      <div class="grow"><label class="f">Weight (lbs)</label><input id="nxw" type="number" value="0"></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="grow"><label class="f">% bodyweight</label><input id="nxb" type="number" value="0"></div>
+      <div class="grow"><label class="f">Unilateral</label><select id="nxi"><option value="0">No</option><option value="1">Yes</option></select></div>
+    </div>
+    <label class="f">Also add to ${DB.active?DAYS[DB.active.day].n:''} template</label>
+    <select id="nxt"><option value="1">Yes — future sessions include it</option><option value="0">No — just today</option></select>
+    <div style="height:14px"></div>
+    <button class="btn primary" onclick="createExLive()">Create &amp; add to workout</button>`);
+}
+function createExLive(){
+  const name=($('#nxn').value||'').trim();if(!name)return;
+  const e={id:'x'+Date.now(),name,group:$('#nxg').value,unit:$('#nxu').value,
+    bw:Math.max(0,Math.min(150,parseFloat($('#nxb').value)||0)),uni:$('#nxi').value==='1',archived:false};
+  DB.exercises.push(e);
+  const sN=Math.max(1,parseInt($('#nxs').value)||3),r=parseFloat($('#nxr').value)||10,w=parseFloat($('#nxw').value)||0;
+  const sets=e.uni?Array.from({length:sN*2},(_,k)=>({w,r,done:false,side:k%2?'R':'L'}))
+                  :Array.from({length:sN},()=>({w,r,done:false}));
+  DB.active.entries.push({exId:e.id,target:{sets:sN,reps:r,weight:w},note:'',skipped:false,open:true,sets});
+  if($('#nxt').value==='1')tpl()[DB.active.day].push({exId:e.id,sets:sN,reps:r,weight:w});
+  save();closeModal();render();
+}
+function addExDo(){const id=$('#pk').value;if(!id)return;
   DB.active.entries.push({exId:id,target:{sets:3,reps:10,weight:0},note:'',skipped:false,open:true,
     sets:Array.from({length:3},()=>({w:0,r:0,done:false}))});
   save();closeModal();render();}
@@ -542,14 +567,14 @@ function finishWorkout(){
   const A=DB.active;
   const entries=A.entries.map(en=>({exId:en.exId,note:en.note,skipped:!!en.skipped,
     sets:en.skipped?[]:en.sets.filter(s=>s.done)})).filter(en=>en.sets.length||en.skipped||en.note);
-  const sess={id:'s'+Date.now(),date:todayISO(),day:A.day,dur:Math.round((Date.now()-A.startTs)/1000),note:'',entries};
+  const sess={id:'s'+Date.now(),date:todayISO(),day:A.day,prog:DB.activeProgram,dur:Math.round((Date.now()-A.startTs)/1000),note:'',entries};
   // progression diffs vs template
   const diffs=[];
   A.entries.forEach(en=>{
     if(en.skipped)return;const done=en.sets.filter(s=>s.done);if(!done.length)return;
-    const tpl=DB.template[A.day].find(t=>t.exId===en.exId);if(!tpl||!tpl.weight)return;
+    const tg=tpl()[A.day].find(t=>t.exId===en.exId);if(!tg||!tg.weight)return;
     const topW=Math.max(...done.map(s=>s.w||0));
-    if(topW>0&&topW!==tpl.weight)diffs.push({exId:en.exId,from:tpl.weight,to:topW});
+    if(topW>0&&topW!==tg.weight)diffs.push({exId:en.exId,from:tg.weight,to:topW});
   });
   DB.sessions.push(sess);DB.active=null;save();
   // session-over-session recap
@@ -574,7 +599,9 @@ function finishWorkout(){
         +(c.reps!==p.reps?` · reps ${p.reps}→${c.reps}`:'')
         +(Math.round(c.vol-p.vol)?` · vol ${c.vol>p.vol?'+':''}${Math.round(c.vol-p.vol)}`:'');
     }
-    return `<div class="rrow ${cls}"><span>${arrow}</span><b>${esc(ex.name)}</b><span class="mono tiny">${d}</span></div>`;
+    const pr=prStats(en.exId,sess.id);
+    const stars=((pr.w&&c.topW>pr.w)?' ⭐W-PR':'')+((pr.vol&&c.vol>pr.vol)?' ⭐vol-PR':'');
+    return `<div class="rrow ${cls}"><span>${arrow}</span><b>${esc(ex.name)}${stars}</b><span class="mono tiny">${d}</span></div>`;
   }).join('');
   const vol=Math.round(sessVol(sess)).toLocaleString();
   const diffHTML=diffs.length?`<h2 style="margin-top:16px">Update template?</h2>`+diffs.map((d,i)=>`
@@ -589,7 +616,7 @@ function finishWorkout(){
     ${diffHTML}<div style="height:12px"></div>
     <button class="btn primary" onclick="closeModal();APP.tab='home';render()">Done</button>`);
 }
-function applyDiff(day,exId,w,btn){const t=DB.template[day].find(t=>t.exId===exId);
+function applyDiff(day,exId,w,btn){const t=tpl()[day].find(t=>t.exId===exId);
   if(t){t.weight=w;save();btn.textContent='✓ Updated';btn.disabled=true;}}
 
 /* ============ ANALYTICS ============ */
@@ -765,9 +792,23 @@ function setView(){
       <button class="btn sm ghost danger" onclick="if(confirm('Archive ${esc(e.name)}? History is kept; it just leaves pickers and templates.')){archiveEx('${e.id}')}">Archive</button></div>
     </div>`).join('');
   const arch=DB.exercises.filter(e=>e.archived);
+  const progs=DB.programs.map(pr=>`
+    <div class="card row between" style="padding:10px 14px">
+      <div class="grow"><b style="font-size:14px">${esc(pr.name)}</b>${pr.id===DB.activeProgram?' <span class="abtag">ACTIVE</span>':''}
+        <div class="tiny">${Object.values(pr.template).reduce((a,d)=>a+d.length,0)} programmed exercises</div></div>
+      <div class="row">
+        ${pr.id!==DB.activeProgram?`<button class="btn sm" onclick="DB.activeProgram='${pr.id}';save();render()">Use</button>`:''}
+        <button class="btn sm ghost" onclick="renameProg('${pr.id}')">✎</button>
+        <button class="btn sm ghost" onclick="dupProg('${pr.id}')">⧉</button>
+        ${DB.programs.length>1?`<button class="btn sm ghost danger" onclick="delProg('${pr.id}')">✕</button>`:''}
+      </div>
+    </div>`).join('');
   return `
     <h2>Profile</h2>
     <div class="card">
+      <div class="row between" style="margin-bottom:10px"><div class="grow"><b style="font-size:14px">Name</b></div>
+        <input style="width:150px" value="${esc(DB.profile.name||'')}" placeholder="you"
+          onchange="DB.profile.name=this.value.trim();save();render()"></div>
       <div class="row between"><div class="grow"><b style="font-size:14px">Bodyweight (lbs)</b>
         <div class="tiny">Powers volume &amp; e1RM for bodyweight lifts (pull-ups, dips, ring rows…)</div></div>
         <input type="number" inputmode="decimal" style="width:90px" value="${DB.meta.bodyweight||''}" placeholder="lbs"
@@ -783,8 +824,10 @@ function setView(){
       <button class="btn ghost" onclick="$('#imp').click()">Import JSON (restore)</button>
       <input type="file" id="imp" accept=".json" class="hide" onchange="importJSON(this)">
     </div>
-    <h2>Templates</h2>
-    <div class="card"><div class="muted" style="margin-bottom:10px">Programmed targets per day — these pre-fill each workout.</div>
+    <h2>Programs</h2>
+    ${progs}
+    <button class="btn ghost" onclick="newProg()" style="margin-bottom:10px">＋ New program</button>
+    <div class="card"><div class="muted" style="margin-bottom:10px">Editing <b>${esc(progName())}</b> — targets per day pre-fill each workout.</div>
       <div class="chips">${Object.keys(DAYS).map(k=>`<div class="chip" onclick="editTpl('${k}')">${DAYS[k].ico} ${DAYS[k].n}</div>`).join('')}</div></div>
     <h2>Muscle groups</h2>
     <div class="card">
@@ -800,6 +843,21 @@ function setView(){
       <button class="btn sm ghost" onclick="e=DB.exercises.find(x=>x.id==='${e.id}');e.archived=false;save();render()">Restore</button></div>`).join('')}`:''}
     <div class="tiny" style="padding:16px 4px">Lift Log v1 · zero dependencies · data stored on-device only</div>`;
 }
+function newProg(){
+  const name=prompt('Program name (e.g. Calisthenics Week)');if(!name)return;
+  const t={};Object.keys(DAYS).forEach(k=>t[k]=[]);
+  const pr={id:'p'+Date.now(),name:name.trim(),template:t};
+  DB.programs.push(pr);DB.activeProgram=pr.id;save();render();}
+function dupProg(id){const src=DB.programs.find(x=>x.id===id);
+  const pr={id:'p'+Date.now(),name:src.name+' copy',template:JSON.parse(JSON.stringify(src.template))};
+  DB.programs.push(pr);DB.activeProgram=pr.id;save();render();}
+function renameProg(id){const pr=DB.programs.find(x=>x.id===id);
+  const name=prompt('Rename program',pr.name);if(!name)return;pr.name=name.trim();save();render();}
+function delProg(id){if(DB.programs.length<2)return;
+  if(!confirm('Delete this program? Logged sessions are kept.'))return;
+  DB.programs=DB.programs.filter(x=>x.id!==id);
+  if(DB.activeProgram===id)DB.activeProgram=DB.programs[0].id;
+  save();render();}
 function addGroup(){const v=($('#ng').value||'').trim().toLowerCase();if(!v)return;
   if(GROUPS.includes(v)){alert('Group already exists.');return;}
   GROUPS.push(v);save();render();}
@@ -809,7 +867,7 @@ function delGroup(g){
   if(!confirm(`Remove group "${g}"?`))return;
   DB.groups=GROUPS=GROUPS.filter(x=>x!==g);save();render();}
 function archiveEx(id){const e=DB.exercises.find(x=>x.id===id);e.archived=true;
-  Object.keys(DB.template).forEach(d=>DB.template[d]=DB.template[d].filter(t=>t.exId!==id));
+  Object.keys(tpl()).forEach(d=>tpl()[d]=tpl()[d].filter(t=>t.exId!==id));
   save();render();}
 function editEx(id){
   const e=id?DB.exercises.find(x=>x.id===id):{id:'',name:'',group:GROUPS[0],unit:'reps',bw:0,uni:false};
@@ -832,7 +890,7 @@ function saveEx(id){
   save();closeModal();render();
 }
 function editTpl(day){
-  const rows=DB.template[day].map((t,i)=>`
+  const rows=tpl()[day].map((t,i)=>`
     <div class="tpl-row">
       <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(exById(t.exId).name)}</div>
       <input type="number" value="${t.sets}" onchange="TV('${day}',${i},'sets',this.value)">
@@ -840,7 +898,7 @@ function editTpl(day){
       <input type="number" value="${t.weight||''}" placeholder="lbs" onchange="TV('${day}',${i},'weight',this.value)">
       <div><button class="ordbtn" onclick="TMove('${day}',${i},-1)">↑</button><button class="ordbtn" onclick="TMove('${day}',${i},1)">↓</button><button class="ordbtn" style="color:var(--bad)" onclick="TDel('${day}',${i})">✕</button></div>
     </div>`).join('');
-  const opts=DB.exercises.filter(e=>!e.archived&&!DB.template[day].some(t=>t.exId===e.id))
+  const opts=DB.exercises.filter(e=>!e.archived&&!tpl()[day].some(t=>t.exId===e.id))
     .map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('');
   modal(`<h3>${DAYS[day].ico} ${DAYS[day].n} template</h3>
     <div class="tpl-row tiny" style="margin-bottom:2px"><div>Exercise</div><div>sets</div><div>reps</div><div>lbs</div><div></div></div>
@@ -851,12 +909,12 @@ function editTpl(day){
     <div style="height:12px"></div>
     <button class="btn primary" onclick="closeModal();render()">Done</button>`);
 }
-function TV(d,i,k,v){DB.template[d][i][k]=parseFloat(v)||0;save();}
-function TMove(d,i,dir){const a=DB.template[d];const j=i+dir;if(j<0||j>=a.length)return;
+function TV(d,i,k,v){tpl()[d][i][k]=parseFloat(v)||0;save();}
+function TMove(d,i,dir){const a=tpl()[d];const j=i+dir;if(j<0||j>=a.length)return;
   [a[i],a[j]]=[a[j],a[i]];save();editTpl(d);}
-function TDel(d,i){DB.template[d].splice(i,1);save();editTpl(d);}
+function TDel(d,i){tpl()[d].splice(i,1);save();editTpl(d);}
 function TAdd(d){const id=$('#tadd').value;if(!id||id==='—')return;
-  DB.template[d].push({exId:id,sets:3,reps:10,weight:0});save();editTpl(d);}
+  tpl()[d].push({exId:id,sets:3,reps:10,weight:0});save();editTpl(d);}
 
 /* ============ EXPORT / IMPORT ============ */
 function dl(name,content,type){
@@ -883,7 +941,7 @@ function importJSON(inp){
   const r=new FileReader();
   r.onload=()=>{try{const d=JSON.parse(r.result);
     if(!d.sessions||!d.exercises)throw 0;
-    if(confirm('Replace ALL current data with this backup?')){DB=d;save();render();alert('Restored.');}
+    if(confirm('Replace ALL current data with this backup?')){DB=d;if(DB.onboarded==null)DB.onboarded=true;GROUPS=DB.groups||GROUPS;save();render();alert('Restored.');}
   }catch(e){alert('Not a valid Lift Log backup file.');}};
   r.readAsText(f);inp.value='';
 }
@@ -893,12 +951,39 @@ const APP={tab:'home',selDay:null};
 function modal(html){$('#modal').innerHTML=`<div class="mask" onclick="if(event.target===this)closeModal()"><div class="sheet">${html}</div></div>`;}
 function closeModal(){$('#modal').innerHTML='';}
 const TABS=[['home','⌂','Home'],['log','＋','Log'],['ana','◫','Analytics'],['hist','≡','History'],['set','⚙','Settings']];
+function onboardView(){
+  return `<div style="padding-top:8vh">
+    <h1 style="font-size:28px">Lift Log</h1>
+    <div class="muted" style="margin:6px 0 22px">Your training data lives only on this device. Set up your profile to start.</div>
+    <div class="card">
+      <label class="f">Your name</label><input id="obn" placeholder="Name">
+      <label class="f">Bodyweight (lbs) — powers pull-up/dip volume</label><input id="obw" type="number" inputmode="decimal" placeholder="e.g. 175">
+      <label class="f">Starting program</label>
+      <select id="obp"><option value="tpl">Balanced 5-Day split (Push/Pull/Lower/Core/Shoulders+DL)</option>
+        <option value="empty">Empty — I'll build my own</option></select>
+      <div style="height:16px"></div>
+      <button class="btn primary" onclick="finishOnboard()">Start training</button>
+    </div>
+    <div class="tiny" style="text-align:center;margin:14px 0 8px">— or —</div>
+    <button class="btn ghost" onclick="document.querySelector('#obi').click()">Restore from a backup file</button>
+    <input type="file" id="obi" accept=".json" class="hide" onchange="importJSON(this)">
+  </div>`;
+}
+function finishOnboard(){
+  DB.profile.name=($('#obn').value||'').trim();
+  DB.meta.bodyweight=parseFloat($('#obw').value)||0;
+  if($('#obp').value==='empty'){const t={};Object.keys(DAYS).forEach(k=>t[k]=[]);
+    DB.programs[0].template=t;DB.programs[0].name='My Program';}
+  DB.onboarded=true;save();render();
+}
 function render(){
+  if(!DB.onboarded){$('#nav').innerHTML='';$('#app').innerHTML=onboardView();return;}
   const t=APP.tab;
   $('#nav').innerHTML=TABS.map(([k,i,n])=>`<button class="${t===k?'on':''}" onclick="APP.tab='${k}';render()"><span class="i">${i}</span>${n}</button>`).join('');
-  const head=`<div class="top"><h1>Lift Log</h1><span class="sub mono">${new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span></div>`;
+  const head=`<div class="top"><h1>Lift Log${DB.profile&&DB.profile.name?' · '+esc(DB.profile.name):''}</h1><span class="sub mono">${new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span></div>`;
   $('#app').innerHTML=head+(t==='home'?homeView():t==='log'?logView():t==='ana'?anaView():t==='hist'?histView():setView());
 }
+document.addEventListener('focusin',e=>{if(e.target&&e.target.type==='number')setTimeout(()=>e.target.select(),0);});
 render();
 </script>
 </body>
